@@ -1,138 +1,192 @@
 //interaction code
-let url = new URL(input.url);
-url.searchParams.set('th', '1');
-url.searchParams.set('psc', '1');
-if (!/\/dp\//.test(url.toString()))
-    bad_input('Input URL is not link to product.');
+// Navigate to the product page
+navigate(input.url);
 
-close_popup('#sp-cc-accept', '#sp-cc-accept');
-detect_block({selector: '#captchacharacters'}, {exists: true});
-detect_block({selector: '[action="/errors/validateCaptcha"]'}, {exists: true});
+// Wait for key elements to load
+wait('#productTitle', {timeout: 30000});
+wait('#bylineInfo', {timeout: 10000});
+wait('.a-price .a-offscreen', {timeout: 10000});
 
-navigate(url.href, {referer: 'https://www.google.com/'});
-wait_any(['[href="/ref=cs_503_link"]', '#productTitle', '#dpSorryPage',
-    '#captchacharacters', '[action="/errors/validateCaptcha"]']);
-if (el_exists('[href="/ref=cs_503_link"]'))
-    throw Error("Sorry! Something went wrong on our end. Please go back and try again or go to Amazon's home page.");
-if (el_exists('#dpSorryPage'))
-    throw Error('Failed loading page by Amazon internal error (#dpSorryPage)');
+// Wait for images to load
+wait('#imageBlock img', {timeout: 10000});
 
-el_exists('#sp_detail2', 10e3);
-
-data.push(...parse())
-// START: New code to click the carousel 'next' button
-// =======================================================
-// const nextButtonSelector = '#sp_detail2 .a-carousel-goto-nextpage';
-// const maxClicks = 3; 
-
-// console.log('Checking for related products carousel...');
-// data = []
-// for (let i = 0; i < maxClicks; i++) {
-//     data.push(...parse())
-//     console.log(data)
-//     // Check if the next button exists and is not disabled (aria-disabled="false")
-//     if (el_exists(`${nextButtonSelector}:not([aria-disabled="true"])`)) {
-//         console.log(`Clicking carousel next button: Attempt #${i + 1}`);
-        
-//         // Click the button to load the next set of products
-//         click(nextButtonSelector);
-        
-//         // Wait for 2 seconds to allow the new items to load into the DOM.
-//         // You may need to adjust this timing.
-//         wait(2000); 
-//     } else {
-//         // If the button is disabled or gone, we've reached the end of the carousel
-//         console.log('Carousel next button not available or disabled. Stopping.');
-//         break;
-//     }
-// }
-// =====================================================
-// END: New code
-
-
-// Collect the data after all clicks are performed
-return data;
-
-
-
-// parser code
-
-const related_products = [];
-
-// The main container for the "Products related to this item" carousel
-const carouselSelector = '#sp_detail2';
-
-// Each product is within an 'li' element with the class 'a-carousel-card'
-const productSelector = `${carouselSelector} li.a-carousel-card`;
-
-// Select all product cards within the carousel
-const productCards = $(productSelector);
-
-// If no product cards are found, return an empty array
-if (productCards.length === 0) {
-    console.log('No related products found in the carousel.');
-    return [];
+// Scroll to ensure all content is loaded
+scroll_to('#productDescription');
+if (el_exists('#productFactsDesktopExpander')) {
+  scroll_to('#productFactsDesktopExpander');
 }
 
-// Iterate over each product card to extract its details
-productCards.each((index, element) => {
-    const productEl = $(element);
-    
-    // Skip empty carousel cards if any exist
-    if (productEl.find('div[data-asin]').length === 0) {
-        return; // 'continue' to the next iteration
-    }
+// Collect the parsed data
+collect(parse());
 
-    // --- Data Extraction ---
+// parser code
+// Helper function to extract price value
+const extractPrice = (priceText) => {
+  if (!priceText) return null;
+  const match = priceText.replace(/,/g, '').match(/[\d.]+/);
+  return match ? parseFloat(match[0]) : null;
+};
 
-    // 1. Extract the ASIN
-    const asin = productEl.find('div[data-asin]').attr('data-asin');
+// Helper function to get currency
+const getCurrency = () => {
+  const priceElement = $('.a-price .a-offscreen').first().text();
+  if (priceElement.includes('₹')) return 'INR';
+  return 'INR'; // Default for Amazon India
+};
 
-    // 2. Extract Title and URL from the main product link
-    const linkElement = productEl.find('a.a-link-normal').first();
-    const title = linkElement.attr('title')?.trim();
-    const productPath = linkElement.attr('href');
-    const url = productPath ? `https://www.amazon.in${productPath}` : null;
+// Product Title
+const product_title = $('#productTitle').text().trim() || null;
 
-    // 3. Extract Image URL
-    const imageUrl = productEl.find('img').attr('src');
+// Brand
+const brand = $('#bylineInfo').text().replace('Visit the', '').replace('Store', '').trim() || null;
 
-    // 4. Extract Price and Original Price
-    const price = productEl.find('.a-price .a-offscreen').first().text()?.trim();
-    const originalPrice = productEl.find('.a-text-price .a-offscreen').text()?.trim();
-    
-    // 5. Extract Rating and Reviews Count
-    const reviewElement = productEl.find('.adReviewLink');
-    const ratingText = reviewElement.attr('aria-label');
-    
-    let rating = null;
-    if (ratingText) {
-        // Extracts the numeric rating from a string like "3.7 out of 5 stars"
-        const ratingMatch = ratingText.match(/(\d\.?\d*)\sout\sof/);
-        if (ratingMatch) {
-            rating = parseFloat(ratingMatch[1]);
-        }
-    }
-    
-    const reviewsCountText = reviewElement.find('.a-color-link').text()?.trim().replace(/,/g, '');
-    const reviews_count = reviewsCountText ? parseInt(reviewsCountText, 10) : null;
+// Current Price
+const currentPriceText = $('.a-price.aok-align-center .a-offscreen').eq(1).text() || 
+                         $('.priceToPay .a-offscreen').first().text() ||
+                         $('.a-price .a-offscreen').first().text();
+const currentPriceValue = extractPrice(currentPriceText);
+const currency = getCurrency();
+const current_price = currentPriceValue ? new Money(currentPriceValue, currency) : null;
 
-    // --- Assemble the Product Object ---
+// Original Price
+const originalPriceText = $('.a-price[data-a-strike="true"] .a-offscreen').first().text();
+const originalPriceValue = extractPrice(originalPriceText);
+const original_price = originalPriceValue ? new Money(originalPriceValue, currency) : null;
 
-    // Only add the product if essential information was found
-    if (asin && title) {
-        related_products.push({
-            asin: asin,
-            title: title,
-            url: url,
-            image_url: imageUrl,
-            price: price,
-            original_price: originalPrice || null,
-            rating: rating,
-            reviews_count: reviews_count,
-        });
-    }
+// Discount Percentage
+const discount_percentage = $('.savingsPercentage').text().trim() || null;
+
+// Rating
+const ratingText = $('#acrPopover .a-icon-alt').first().text();
+const rating = ratingText ? parseFloat(ratingText.match(/[\d.]+/)?.[0]) : null;
+
+// Review Count
+const reviewText = $('[data-hook="total-review-count"]').text();
+const review_count = reviewText ? parseInt(reviewText.replace(/[^\d]/g, '')) : null;
+
+// Product Images
+const product_images = [];
+$('#altImages ul li img').each((i, el) => {
+  const src = $(el).attr('src');
+  if (src && src.includes('media-amazon') && !src.includes('icon') && !src.includes('360_icon')) {
+    // Get high-res version
+    const highResSrc = src.replace(/_SX\d+_SY\d+_CR.*?\.jpg/, '._SL1500_.jpg')
+                          .replace(/_AC_.*?\.jpg/, '._SL1500_.jpg');
+    product_images.push(new Image(highResSrc));
+  }
 });
 
-// Return the final array of scraped product objects
-return related_products;
+// Main product image
+const mainImage = $('#landingImage').attr('data-old-hires') || $('#imgTagWrapperId img').attr('data-old-hires') || $('#landingImage').attr('src') || $('#imgTagWrapperId img').attr('src');
+if (mainImage && product_images.length === 0) {
+  product_images.push(new Image(mainImage));
+}
+
+// Available Sizes
+const available_sizes = [];
+$('#native_dropdown_selected_size_name option').each((i, el) => {
+  const size = $(el).text().trim();
+  if (size && size !== 'Select') {
+    available_sizes.push(size);
+  }
+});
+
+// Available Colors - get from selection span (current color)
+const available_colors = [];
+const currentColor = $('#variation_color_name .selection').text().trim();
+if (currentColor) {
+  available_colors.push(currentColor);
+}
+
+// Product Description
+const product_description = $('#productDescription p').text().trim() || 
+                           $('#productDescription').text().trim() || null;
+
+// Product Features - from "About this item" section
+const product_features = [];
+$('#productFactsDesktopExpander .product-facts-detail').each((i, el) => {
+  const label = $(el).find('.a-col-left .a-color-base').text().trim();
+  const value = $(el).find('.a-col-right .a-color-base').text().trim();
+  if (label && value) {
+    product_features.push(`${label}: ${value}`);
+  }
+});
+
+// In Stock
+const availabilityText = $('#availability span').text().trim().toLowerCase();
+const in_stock = availabilityText.includes('in stock');
+
+// Delivery Info
+const delivery_info = $('#mir-layout-DELIVERY_BLOCK').text().trim() || null;
+
+// Seller Name - FIX: Use .first() to get only the first matching element
+const seller_name = $('#sellerProfileTriggerId').first().text().trim() || null;
+
+// Return Policy
+const return_policy = $('[data-name="RETURNS_POLICY"] .icon-content').text().trim() || 
+                      $('[data-name="RETURNS_POLICY"]').text().trim() || null;
+
+// Product Specifications
+const product_specifications = {
+  material: null,
+  fit_type: null,
+  sleeve_type: null,
+  neck_style: null
+};
+
+$('#productFactsDesktopExpander .product-facts-detail').each((i, el) => {
+  const label = $(el).find('.a-col-left .a-color-base').text().trim().toLowerCase();
+  const value = $(el).find('.a-col-right .a-color-base').text().trim();
+  
+  if (label.includes('material') || label.includes('composition')) {
+    product_specifications.material = value;
+  } else if (label.includes('fit')) {
+    product_specifications.fit_type = value;
+  } else if (label.includes('sleeve')) {
+    product_specifications.sleeve_type = value;
+  } else if (label.includes('collar') || label.includes('neck')) {
+    product_specifications.neck_style = value;
+  }
+});
+
+// Similar Products
+const similar_products = [];
+$('.a-carousel-card').each((i, el) => {
+  const title = $(el).find('.sponsored-products-truncator-truncated').text().trim() ||
+                $(el).find('.a-truncate-full').text().trim();
+  const priceText = $(el).find('.a-price .a-offscreen').first().text();
+  const imageUrl = $(el).find('img[src*="media-amazon"]').first().attr('src');
+  const productUrl = $(el).find('a[href*="/dp/"]').first().attr('href');
+  
+  if (title && imageUrl && !imageUrl.includes('IconFarm')) {
+    const priceValue = extractPrice(priceText);
+    similar_products.push({
+      title: title,
+      price: priceValue ? new Money(priceValue, currency) : null,
+      image: new Image(imageUrl.replace(/_AC_.*?\.jpg/, '._AC_SR300,300_.jpg')),
+      url: productUrl ? new URL(productUrl, location.href) : null
+    });
+  }
+});
+
+// Return the complete data object
+return {
+  product_title,
+  brand,
+  current_price,
+  original_price,
+  discount_percentage,
+  rating,
+  review_count,
+  product_images,
+  available_sizes,
+  available_colors,
+  product_description,
+  product_features,
+  in_stock,
+  delivery_info,
+  seller_name,
+  return_policy,
+  product_specifications,
+  similar_products
+};
